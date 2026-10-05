@@ -8,3 +8,7 @@ playwright-report/
 .DS_Store
 *.swp
 *.log
+
+# 1-z-2 identity. The private key never belongs in git.
+.relay-*.json
+!.relay-*.example.json

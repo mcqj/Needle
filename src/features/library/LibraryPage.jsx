@@ -196,7 +196,7 @@ export default function LibraryPage() {
               <Box className="track-list">
                 <Box className="track-list-header" aria-hidden="true">
                   <span>No.</span><span>Artwork</span><span>Title / artist</span><span>Category</span>
-                  <span>Rating</span><span>Added</span><span>Link</span>
+                  <span>Rating</span><span>Added</span><span>Send / open</span>
                 </Box>
                 {filteredTracks.map((track, index) => (
                   <TrackRow key={track.id} track={track} index={index} />

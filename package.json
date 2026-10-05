@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "relay:selftest": "node scripts/relay-selftest.mjs"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

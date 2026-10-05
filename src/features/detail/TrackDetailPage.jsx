@@ -21,6 +21,7 @@ import RatingMarks from '../../components/RatingMarks';
 import { categoriesAtom, libraryAtom } from '../../state/libraryAtoms';
 import { formatDate, getSourceLabel } from '../../utils/media';
 import TrackDialog from '../library/TrackDialog';
+import { TrackSendButton } from '../friends/SendTrackDialog';
 
 export default function TrackDetailPage() {
   const { trackId } = useParams();
@@ -64,6 +65,7 @@ export default function TrackDetailPage() {
           <Box className="detail-art-column">
             <Artwork src={track.imageUrl} alt={`${track.title} artwork`} size="hero" />
             <Box className="detail-actions">
+              <TrackSendButton track={track} size="medium" label="Send to contact" />
               <Button variant="outlined" startIcon={<EditRoundedIcon />} onClick={() => setEditOpen(true)}>
                 Edit
               </Button>
@@ -76,6 +78,13 @@ export default function TrackDetailPage() {
             <Box className="detail-meta-row">
               <Chip label={track.category} color="primary" />
               <Typography>Added {formatDate(track.createdAt)}</Typography>
+              {track.fromHandle && (
+                <Chip
+                  variant="outlined"
+                  color="secondary"
+                  label={`from @${track.fromHandle}${track.receivedAt ? ` · ${formatDate(track.receivedAt)}` : ''}`}
+                />
+              )}
             </Box>
             <Typography component="h1" variant="h1">{track.title}</Typography>
             <Typography component="p" className="detail-artist">{track.artist}</Typography>

@@ -34,6 +34,20 @@ export function getAutomaticArtwork(value) {
   return youtubeId ? `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg` : '';
 }
 
+/**
+ * YouTube answers a missing thumbnail with HTTP 404 but a *valid* 120x90 grey
+ * placeholder JPEG, so the browser fires load, not error, and the app would
+ * paint that grey tile as though it were artwork. Detect the placeholder so it
+ * can be treated as "no artwork".
+ */
+export function isYouTubePlaceholderThumbnail({ naturalWidth, naturalHeight, byteSize } = {}) {
+  const isPlaceholderShape = naturalWidth === 120 && naturalHeight === 90;
+  // The placeholder is a tiny file; a real 120x90 image is not. Only applied
+  // when the size is actually known.
+  const isPlaceholderSize = typeof byteSize !== 'number' || byteSize < 3000;
+  return isPlaceholderShape && isPlaceholderSize;
+}
+
 export function getSourceLabel(value) {
   if (!value) return 'Link';
 

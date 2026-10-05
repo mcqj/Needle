@@ -3,6 +3,7 @@ import {
   getAutomaticArtwork,
   getSourceLabel,
   getYouTubeId,
+  isYouTubePlaceholderThumbnail,
   normalizeUrl,
 } from './media';
 
@@ -28,5 +29,25 @@ describe('media utilities', () => {
   it('recognizes common listening sources', () => {
     expect(getSourceLabel('https://open.spotify.com/track/123')).toBe('Spotify');
     expect(getSourceLabel('https://artist.bandcamp.com/track/example')).toBe('Bandcamp');
+  });
+});
+
+describe('isYouTubePlaceholderThumbnail', () => {
+  it('recognises the grey placeholder YouTube serves for a missing video', () => {
+    expect(isYouTubePlaceholderThumbnail({ naturalWidth: 120, naturalHeight: 90 })).toBe(true);
+  });
+
+  it('rejects a real thumbnail', () => {
+    expect(isYouTubePlaceholderThumbnail({ naturalWidth: 480, naturalHeight: 360 })).toBe(false);
+    expect(isYouTubePlaceholderThumbnail({ naturalWidth: 1280, naturalHeight: 720 })).toBe(false);
+  });
+
+  it('rejects a 120x90 image large enough to be real content', () => {
+    expect(isYouTubePlaceholderThumbnail({ naturalWidth: 120, naturalHeight: 90, byteSize: 24000 })).toBe(false);
+  });
+
+  it('is safe with missing dimensions', () => {
+    expect(isYouTubePlaceholderThumbnail()).toBe(false);
+    expect(isYouTubePlaceholderThumbnail({})).toBe(false);
   });
 });

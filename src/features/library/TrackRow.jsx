@@ -3,6 +3,7 @@ import { Box, Chip, IconButton, Typography } from '@mui/material';
 import { Link } from 'react-router';
 import Artwork from '../../components/Artwork';
 import RatingMarks from '../../components/RatingMarks';
+import { TrackSendButton } from '../friends/SendTrackDialog';
 import { formatDate, getSourceLabel } from '../../utils/media';
 
 export default function TrackRow({ track, index }) {
@@ -31,16 +32,28 @@ export default function TrackRow({ track, index }) {
         <RatingMarks value={track.rating || 0} compact />
       </Box>
       <Typography className="track-date">{formatDate(track.createdAt)}</Typography>
-      <IconButton
-        component="a"
-        href={track.url}
-        target="_blank"
-        rel="noreferrer"
-        aria-label={`Open ${track.title} on ${getSourceLabel(track.url)}`}
-        title={`Open on ${getSourceLabel(track.url)}`}
-      >
-        <LaunchRoundedIcon fontSize="small" />
-      </IconButton>
+      <Box className="track-actions">
+        {track.fromHandle && (
+          <Chip
+            size="small"
+            variant="outlined"
+            color="primary"
+            label={`from @${track.fromHandle}`}
+            className="track-from"
+          />
+        )}
+        <TrackSendButton track={track} label="Send" />
+        <IconButton
+          component="a"
+          href={track.url}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Open ${track.title} on ${getSourceLabel(track.url)}`}
+          title={`Open on ${getSourceLabel(track.url)}`}
+        >
+          <LaunchRoundedIcon fontSize="small" />
+        </IconButton>
+      </Box>
     </Box>
   );
 }

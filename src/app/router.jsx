@@ -4,10 +4,16 @@ import AppLayout from './AppLayout';
 import RouteErrorPage from './RouteErrorPage';
 import LibraryPage from '../features/library/LibraryPage';
 import TrackDetailPage from '../features/detail/TrackDetailPage';
+import FriendsPage from '../features/friends/FriendsPage';
+import RelayProvider from '../features/friends/RelayProvider';
 
 export const router = createBrowserRouter([
   {
-    element: <App />,
+    element: (
+      <RelayProvider>
+        <App />
+      </RelayProvider>
+    ),
     children: [
       {
         path: '/',
@@ -16,6 +22,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <LibraryPage /> },
           { path: 'music/:trackId', element: <TrackDetailPage /> },
+          { path: 'friends', element: <FriendsPage /> },
           {
             path: '*',
             element: <RouteErrorPage notFound />,
