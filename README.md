@@ -129,6 +129,38 @@ content-addressed, so every existing image URL keeps working.
 R2's own `*.r2.dev` subdomain is rate-limited and documented as non-production,
 which is why images are served by the Worker rather than by an R2 public URL.
 
+## Hosting the app
+
+The frontend is deployed to Cloudflare Pages:
+
+```
+https://needle-ell.pages.dev
+```
+
+```sh
+npm run build
+npx wrangler pages deploy dist --project-name needle --branch main
+```
+
+`public/_redirects` provides the SPA fallback, so `/friends` and `/music/:id`
+survive a refresh instead of 404ing — Pages serves files by name and those paths
+exist only in the browser.
+
+**Two one-time steps are needed after the first deploy to a new origin:**
+
+1. **Allow the origin to upload.** Add it to `ALLOWED_ORIGINS` in
+   `worker/wrangler.toml` and redeploy the Worker. Uploads from anywhere else
+   are refused, which is what keeps the endpoint closed to scripted abuse. Do
+   this for preview deployments too — their hostnames differ per build.
+2. **Import the relay identity.** Browser credentials live in `localStorage`,
+   which is scoped to an origin, so a newly deployed site starts with none. On
+   first visit the friends screen offers **Import identity file**; choose the
+   `.relay-jmq.json` in this project. Until then 1-z-2 reports the handle as
+   taken, because the app has no key for this origin to prove it is `@jmq`.
+
+Neither is a defect: one is the security rule that keeps uploads closed, the
+other is the point of a device key — an identity belongs to a place.
+
 ### Uploads are not open to the internet
 
 Uploading is a write, so `/upload` requires an allowed `Origin`. A browser

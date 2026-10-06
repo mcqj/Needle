@@ -6,9 +6,10 @@ main = "src/index.js"
 compatibility_date = "2026-09-01"
 
 [vars]
-# Origins allowed to upload. Add the deployed app origin here, e.g.
-# "https://needle.pages.dev", or uploads will be refused by the browser.
-ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:4173"
+# Origins allowed to upload: local development, plus the deployed app. A request
+# from anywhere else is refused. Add every origin the app is served from —
+# including preview deployments, whose hostnames differ per build.
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:4173,https://needle-ell.pages.dev"
 # The origin image URLs are built from. This must be an absolute URL: the app and
 # the Worker are on different origins, so a relative URL would resolve against
 # the wrong host. Update it if you attach a custom domain.

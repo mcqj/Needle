@@ -1,0 +1,5 @@
+# Cloudflare Pages serves static files by name. This app uses client-side
+# routing (createBrowserRouter), so /friends and /music/:id exist only in the
+# browser. Without this fallback, refreshing any of those would 404.
+/*
+  /index.html  200
