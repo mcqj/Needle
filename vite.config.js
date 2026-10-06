@@ -32,12 +32,19 @@ export default defineConfig({
   plugins: [react(), relayIdentityEndpoint()],
   server: {
     proxy: {
-      // Dev only: the asset Worker runs separately (`npm run assets:dev`) against
-      // a local R2 bucket, and the app calls it on its own origin.
-      '/api/assets': {
+      // Dev only: `npm run assets:dev` runs the Worker against a local R2
+      // bucket. Both of the Worker's own path prefixes are proxied so the app is
+      // same-origin locally, exactly as it is when deployed — the Worker's
+      // `run_worker_first` covers /i/* in production, and without this the dev
+      // server's SPA fallback would answer an image request with index.html.
+      '/api': {
         target: 'http://127.0.0.1:8787',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/assets/, ''),
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+      '/i': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
       },
     },
   },

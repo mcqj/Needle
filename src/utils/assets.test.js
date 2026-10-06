@@ -138,7 +138,18 @@ describe('asset uploads', () => {
     });
   });
 
-  it('is configured by default, so development uses the real bucket', () => {
+  it('uploads same-origin, with the dev prefix only where a proxy needs it', () => {
+    // In production the Worker serves the app and the upload endpoint, so there
+    // is no prefix and no host to configure. In development Vite proxies /api to
+    // the Worker, which is why the prefix exists -- but it must never leak into
+    // a deployed build, where /api/upload would 405.
+    const dev = import.meta.env.DEV;
+    expect(ASSET_ENDPOINT).toBe(dev ? '/api' : '');
+  });
+
+  it('treats an empty endpoint as same-origin, not as a reason to give up', () => {
+    // This is the deployed case, and getting it wrong silently degrades every
+    // upload to an embedded data URL instead of failing loudly.
     expect(isAssetHostConfigured()).toBe(true);
   });
 });

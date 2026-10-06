@@ -56,9 +56,10 @@ npm run test:watch     # Run unit tests in watch mode
 npm run test:coverage  # Run unit tests with V8 coverage
 npm run test:ui        # Run Playwright browser tests
 npm run relay:selftest # Prove the 1-z-2 loop end to end against the relay
-npm run assets:dev     # Run the artwork asset host locally (real R2 bucket)
-npm run assets:test    # Test the asset host
-npm run test:all       # App tests and asset-host tests
+npm run assets:dev     # Run the Worker locally (real R2 bucket + built app)
+npm run assets:test    # Test the Worker
+npm run assets:deploy  # Deploy the app and its asset API together
+npm run test:all       # App tests and Worker tests
 ```
 
 Playwright may require its Chromium test browser on a new machine:
@@ -67,116 +68,95 @@ Playwright may require its Chromium test browser on a new machine:
 npx playwright install chromium
 ```
 
-## Artwork storage
+## How it is deployed
 
-Uploaded images do not live in the browser. They go to a small Cloudflare Worker
-in `worker/` that stores them in an R2 bucket and returns a URL, and the entry
-keeps only that URL. That is what keeps browser storage small, lets the same
-picture appear on every device, and stops a cleared browser from taking the
-artwork with it.
+The app and its artwork host are **one Cloudflare Worker**:
+
+```
+https://needle.jmq33.workers.dev
+```
+
+`needle/` contains the Worker; the built frontend in `dist/` is uploaded with it
+as static assets. Static asset requests are free and unlimited, and only requests
+that reach the script are billable — the script handles exactly three paths
+(`/upload`, `/i/<key>`, `/health`), declared in `run_worker_first` in
+`needle/wrangler.toml`. Everything else, including every page of the app, is
+served as an asset without invoking the script.
+
+Deploying:
+
+```sh
+npm run build
+npm run assets:deploy      # wrangler deploy, from needle/
+```
+
+Client-side routing is handled by `not_found_handling = "single-page-application"`,
+so `/friends` and `/music/:id` — which exist only in the browser — survive a
+refresh rather than 404ing. No `_redirects` file is involved; Workers parses that
+format more strictly than Pages and rejects it, and the setting does the job.
+
+### Why one Worker rather than Pages plus a Worker
+
+An earlier version ran the app on Pages and the images on a separate Worker. Two
+origins meant cross-origin uploads, a `CORS` allow-list to keep in step with every
+deployment hostname, absolute image URLs pinned to one host, and preview
+deployments that could not upload until they were added to the list.
+
+As one origin, all of that disappears: stored image URLs are relative
+(`/i/<key>`), there is no CORS involved, and a same-origin upload is trusted by
+construction rather than by configuration.
+
+### Artwork storage
+
+Uploaded images do not live in the browser. They go to the R2 bucket
+`needle-assets` and the entry keeps only the returned URL. That is what keeps
+browser storage small, lets the same picture appear on every device, and stops a
+cleared browser from taking the artwork with it.
 
 Entries are unchanged: `imageUrl` still holds a URL, so the 1-z-2 capability and
 everything built on it behave exactly as before.
 
-Development uses a **real bucket, locally**. Two terminals:
+Objects are content-addressed by the SHA-256 of their bytes: the same bytes always
+produce the same key, so re-uploading is idempotent and a key's URL never changes.
+That is what makes the one-year immutable cache safe.
+
+Development uses a **real bucket, locally**:
 
 ```sh
-npm run assets:dev   # the Worker, backed by worker/.wrangler/r2 on disk
-npm run dev          # the app; /api/assets is proxied to the Worker
+npm run assets:dev   # the Worker, backed by needle/.wrangler/r2 on disk
+npm run dev          # the app; Vite proxies /api/* and /i/* to it
 ```
 
-Objects are content-addressed: the same bytes always produce the same key, so
-re-uploading is idempotent and the URL for a given image never changes — which
-is why it is served with a one-year immutable cache.
+`npm run build && npm run assets:dev` then serving <http://127.0.0.1:8787> also
+exercises the Worker's own routing — uploads, image serving and the SPA fallback —
+the way production behaves.
 
 If the asset host is unreachable, the app embeds a small image in the entry
-instead rather than failing. That is deliberate: like the relay, the asset host
-must never break the ledger. Set `VITE_ASSET_ENDPOINT` (see `.env.example`) to
-an absolute URL for a deployed build, or to `""` to opt out of uploads entirely.
-
-### Deploying the asset host
-
-Once you have a Cloudflare account:
-
-```sh
-cd worker
-npx wrangler login          # interactive, once
-npx wrangler r2 bucket create needle-assets
-npx wrangler deploy
-```
-
-Deployed at `https://needle-assets.jmq33.workers.dev` on the free
-`*.workers.dev` subdomain, which needs no domain registration:
-
-```sh
-npm run assets:login     # wrangler login (interactive, once)
-npm run assets:bucket    # create the R2 bucket
-npm run assets:deploy    # deploy; prints the Worker URL
-```
-
-Then keep two values in `worker/wrangler.toml` current and redeploy:
-
-- `PUBLIC_BASE` — the Worker's absolute URL, so stored image URLs name a host.
-  Relative URLs would resolve against the app's origin, which is a different
-  origin entirely.
-- `ALLOWED_ORIGINS` — every origin the app is served from, including the
-  deployed one once the frontend is hosted. Uploads from anywhere else are
-  refused.
-
-When you later attach a custom domain, point `PUBLIC_BASE` at it; keys are
-content-addressed, so every existing image URL keeps working.
-
-R2's own `*.r2.dev` subdomain is rate-limited and documented as non-production,
-which is why images are served by the Worker rather than by an R2 public URL.
-
-## Hosting the app
-
-The frontend is deployed to Cloudflare Pages:
-
-```
-https://needle-ell.pages.dev
-```
-
-```sh
-npm run build
-npx wrangler pages deploy dist --project-name needle --branch main
-```
-
-`public/_redirects` provides the SPA fallback, so `/friends` and `/music/:id`
-survive a refresh instead of 404ing — Pages serves files by name and those paths
-exist only in the browser.
-
-**Two one-time steps are needed after the first deploy to a new origin:**
-
-1. **Allow the origin to upload.** Add it to `ALLOWED_ORIGINS` in
-   `worker/wrangler.toml` and redeploy the Worker. Uploads from anywhere else
-   are refused, which is what keeps the endpoint closed to scripted abuse. Do
-   this for preview deployments too — their hostnames differ per build.
-2. **Import the relay identity.** Browser credentials live in `localStorage`,
-   which is scoped to an origin, so a newly deployed site starts with none. On
-   first visit the friends screen offers **Import identity file**; choose the
-   `.relay-jmq.json` in this project. Until then 1-z-2 reports the handle as
-   taken, because the app has no key for this origin to prove it is `@jmq`.
-
-Neither is a defect: one is the security rule that keeps uploads closed, the
-other is the point of a device key — an identity belongs to a place.
+instead of failing: like the relay, the asset host must never break the ledger.
+Set `VITE_ASSET_ENDPOINT` (see `.env.example`) to an absolute URL if the asset API
+is ever served elsewhere, or to `off` to opt out of uploads entirely.
 
 ### Uploads are not open to the internet
 
-Uploading is a write, so `/upload` requires an allowed `Origin`. A browser
-always sends `Origin` on a cross-origin request and cannot forge it, which shuts
-out scripted abuse — CORS alone does not, because it only restrains browsers.
+Uploading is a write, so `/upload` refuses a request it does not recognise. A
+same-origin request is allowed by construction: it came from the page this Worker
+served, and a page cannot forge `Origin`, so a cross-site script cannot produce a
+matching one. Configured origins cover development, where Vite serves the app on
+another port; and `UPLOAD_TOKEN` (set with `wrangler secret put UPLOAD_TOKEN`,
+sent as `X-Upload-Token`) covers callers with no `Origin` at all.
 
-Note that `PUBLIC_BASE` and `ALLOWED_ORIGINS` are not secrets: they are visible
-in any build. The origin rule is what keeps the endpoint honest. For a
-server-side caller with no `Origin`, set a shared secret instead:
+CORS alone would not have been enough: it restrains browsers, so a script with
+`curl` ignores it entirely. An early version of this endpoint accepted an upload
+with a forged `Origin` for exactly that reason.
 
-```sh
-npx wrangler secret put UPLOAD_TOKEN
-```
+### First visit to a new origin
 
-and send it as `X-Upload-Token`. When set, a correct token is accepted in place
-of a matching origin.
+Browser credentials live in `localStorage`, which is scoped to an origin, so a
+newly deployed site starts with no relay identity. The friends screen offers
+**Import identity file**; choose the `.relay-jmq.json` in this project. Until then
+1-z-2 reports the handle as taken, because the app has no key for this origin to
+prove it is `@jmq`. That is the point of a device key — an identity belongs to a
+place.
 
 ## Exchanging music with other apps
 
@@ -242,7 +222,7 @@ src/
   utils/          URL, artwork, file, and formatting helpers
 relay-client.js   Vendored 1-z-2 SDK, unmodified
 scripts/          Standalone integration checks
-worker/           Artwork asset host (Cloudflare Worker + R2)
+needle/           The deployed Worker: app routing, upload API, image serving
 e2e/              Playwright browser tests
 ```
 

@@ -18,6 +18,13 @@ function fakeBucket() {
     async put(key, value, options) {
       store.set(key, { bytes: new Uint8Array(value), httpMetadata: options?.httpMetadata ?? {} });
     },
+    async list({ limit = 1000 } = {}) {
+      const keys = [...store.keys()];
+      return {
+        objects: keys.slice(0, limit).map((key) => ({ key, size: store.get(key).bytes.byteLength })),
+        truncated: keys.length > limit,
+      };
+    },
     async get(key) {
       const object = store.get(key);
       if (!object) return null;
@@ -40,7 +47,8 @@ function fakeBucket() {
 }
 
 const ENV = {
-  ASSETS: null,
+  ASSETS_R2: null,
+  ASSETS: { fetch: async () => new Response('asset') },
   ALLOWED_ORIGINS: 'http://localhost:5173',
   PUBLIC_BASE: '',
   MAX_UPLOAD_BYTES: '1048576',
@@ -55,25 +63,34 @@ function uploadRequest({ body = PNG, type = 'image/png', origin = 'http://localh
   return new Request('https://assets.example.com/upload', { method: 'PUT', headers, body });
 }
 
+/** A request from the page this Worker itself served. */
+function sameOriginUpload() {
+  return new Request('https://assets.example.com/upload', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'image/png', Origin: 'https://assets.example.com' },
+    body: PNG,
+  });
+}
+
 describe('asset worker', () => {
   let env;
-  beforeEach(() => { env = { ...ENV, ASSETS: fakeBucket() }; });
+  beforeEach(() => { env = { ...ENV, ASSETS_R2: fakeBucket() }; });
 
   it('stores an image and answers with a URL the app can keep', async () => {
     const response = await worker.fetch(uploadRequest(), env);
     expect(response.status).toBe(200);
 
     const body = await response.json();
-    expect(body.url).toMatch(/^https:\/\/assets\.example\.com\/[a-f0-9]{32}\.png$/);
+    expect(body.url).toMatch(/^\/i\/[a-f0-9]{32}\.png$/);
     expect(body.bytes).toBe(PNG.byteLength);
     expect(body.deduplicated).toBe(false);
-    expect(env.ASSETS.store.size).toBe(1);
+    expect(env.ASSETS_R2.store.size).toBe(1);
   });
 
   it('sets a long-lived cache header, which content addressing makes safe', async () => {
     const { url } = await (await worker.fetch(uploadRequest(), env)).json();
-    const key = new URL(url).pathname.slice(1);
-    expect(env.ASSETS.store.get(key).httpMetadata.cacheControl)
+    const key = url.replace('/i/', '');
+    expect(env.ASSETS_R2.store.get(key).httpMetadata.cacheControl)
       .toBe('public, max-age=31536000, immutable');
   });
 
@@ -84,7 +101,7 @@ describe('asset worker', () => {
     expect(second.key).toBe(first.key);
     expect(second.url).toBe(first.url);
     expect(second.deduplicated).toBe(true);
-    expect(env.ASSETS.store.size).toBe(1);
+    expect(env.ASSETS_R2.store.size).toBe(1);
   });
 
   it('gives different bytes different URLs', async () => {
@@ -98,7 +115,7 @@ describe('asset worker', () => {
     const response = await worker.fetch(uploadRequest({ type: 'text/html' }), env);
     expect(response.status).toBe(415);
     expect((await response.json()).error).toMatch(/PNG, JPEG, WebP, GIF or AVIF/);
-    expect(env.ASSETS.store.size).toBe(0);
+    expect(env.ASSETS_R2.store.size).toBe(0);
   });
 
   it('refuses a file over the limit, by declared length and by actual size', async () => {
@@ -115,7 +132,7 @@ describe('asset worker', () => {
 
     const big = new Uint8Array(2 * 1024 * 1024);
     expect((await worker.fetch(uploadRequest({ body: big }), env)).status).toBe(413);
-    expect(env.ASSETS.store.size).toBe(0);
+    expect(env.ASSETS_R2.store.size).toBe(0);
   });
 
   it('rejects an empty file', async () => {
@@ -125,7 +142,7 @@ describe('asset worker', () => {
 
   it('serves a stored image back with its type and an ETag', async () => {
     const { url } = await (await worker.fetch(uploadRequest(), env)).json();
-    const response = await worker.fetch(new Request(url), env);
+    const response = await worker.fetch(new Request(`https://assets.example.com${url}`), env);
 
     expect(response.status).toBe(200);
     expect(response.headers.get('Content-Type')).toBe('image/png');
@@ -135,23 +152,85 @@ describe('asset worker', () => {
 
   it('answers 304 when the client already has the bytes', async () => {
     const { url } = await (await worker.fetch(uploadRequest(), env)).json();
-    const etag = (await worker.fetch(new Request(url), env)).headers.get('ETag');
-    const conditional = await worker.fetch(new Request(url, { headers: { 'If-None-Match': etag } }), env);
+    const absolute = `https://assets.example.com${url}`;
+    const etag = (await worker.fetch(new Request(absolute), env)).headers.get('ETag');
+    const conditional = await worker.fetch(
+      new Request(absolute, { headers: { 'If-None-Match': etag } }),
+      env,
+    );
     expect(conditional.status).toBe(304);
   });
 
-  it('404s for a key it does not hold, and for a path that is not a key', async () => {
-    expect((await worker.fetch(new Request('https://assets.example.com/deadbeefdeadbeefdeadbeefdeadbeef.png'), env)).status).toBe(404);
-    expect((await worker.fetch(new Request('https://assets.example.com/../secrets'), env)).status).toBe(404);
+  it('404s for a key it does not hold', async () => {
+    const response = await worker.fetch(
+      new Request('https://assets.example.com/i/deadbeefdeadbeefdeadbeefdeadbeef.png'),
+      env,
+    );
+    expect(response.status).toBe(404);
+    // A miss on an image must never be answered with the SPA's HTML, which the
+    // browser would try to render as a picture.
+    expect(await response.text()).not.toContain('<');
   });
 
-  it('allows the configured origin and stays silent for any other', async () => {
+  it('refuses a name that is not content-addressed, rather than serving the app', async () => {
+    // Not one of our keys, so not an image: 404 rather than index.html.
+    expect((await worker.fetch(new Request('https://assets.example.com/i/logo.png'), env)).status).toBe(404);
+  });
+
+  it('leaves a normalised traversal to the app router, since it never sees /i/', async () => {
+    // The runtime resolves /i/../secrets to /secrets before this script runs, so
+    // it is an app route like any other -- not an image read.
+    const seen = [];
+    const withAssets = {
+      ...env,
+      ASSETS: { fetch: async (request) => { seen.push(new URL(request.url).pathname); return new Response('asset'); } },
+    };
+    const response = await worker.fetch(new Request('https://assets.example.com/i/../secrets'), withAssets);
+    expect(await response.text()).toBe('asset');
+    expect(seen).toEqual(['/secrets']);
+  });
+
+  it('hands anything that is not its own route to the asset router', async () => {
+    const seen = [];
+    const withAssets = {
+      ...env,
+      ASSETS: { fetch: async (request) => { seen.push(new URL(request.url).pathname); return new Response('asset'); } },
+    };
+    const response = await worker.fetch(new Request('https://assets.example.com/friends'), withAssets);
+    expect(await response.text()).toBe('asset');
+    expect(seen).toEqual(['/friends']);
+  });
+
+  it('reports what it can reach, and says so when a binding is missing', async () => {
+    const ok = await (await worker.fetch(new Request('https://assets.example.com/health'), env)).json();
+    expect(ok.ok).toBe(true);
+    expect(ok.images).toMatch(/r2 reachable/);
+
+    const broken = await worker.fetch(
+      new Request('https://assets.example.com/health'),
+      { ...env, ASSETS_R2: { list: async () => { throw new Error('down'); } } },
+    );
+    expect(broken.status).toBe(503);
+    expect((await broken.json()).images).toBe('r2 unreachable');
+  });
+
+  it('accepts the app origin and refuses any other, leaving CORS out of it', async () => {
+    // The app and its images share an origin now, so no CORS header is involved:
+    // the Origin check is purely a guard on who may write.
     const allowed = await worker.fetch(uploadRequest(), env);
-    expect(allowed.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
+    expect(allowed.status).toBe(200);
+    expect(allowed.headers.get('Access-Control-Allow-Origin')).toBeNull();
 
     const other = await worker.fetch(uploadRequest({ origin: 'https://evil.example' }), env);
     expect(other.status).toBe(403);
-    expect(other.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+
+  it('accepts an upload from the origin it serves, with nothing configured', async () => {
+    // This is the deployed case: the app and the API share a host. Requiring an
+    // allow-list entry here would mean editing config every time the hostname
+    // changes, and forgetting it would break uploads on a new deployment.
+    const noList = { ...env, ALLOWED_ORIGINS: '' };
+    expect((await worker.fetch(sameOriginUpload(), noList)).status).toBe(200);
   });
 
   it('refuses an upload that carries no Origin at all, which is how a script would ask', async () => {
@@ -160,13 +239,13 @@ describe('asset worker', () => {
     const response = await worker.fetch(uploadRequest({ origin: null }), env);
     expect(response.status).toBe(403);
     expect((await response.json()).error).toMatch(/only accepted from this app/);
-    expect(env.ASSETS.store.size).toBe(0);
+    expect(env.ASSETS_R2.store.size).toBe(0);
   });
 
   it('refuses an upload from an origin the app does not use', async () => {
     const response = await worker.fetch(uploadRequest({ origin: 'https://evil.example' }), env);
     expect(response.status).toBe(403);
-    expect(env.ASSETS.store.size).toBe(0);
+    expect(env.ASSETS_R2.store.size).toBe(0);
   });
 
   it('accepts a token-bearing upload from a caller with no Origin, when a token is configured', async () => {
@@ -186,14 +265,17 @@ describe('asset worker', () => {
   });
 
   it('uses PUBLIC_BASE for the returned URL when a domain is attached', async () => {
-    const withDomain = { ...env, PUBLIC_BASE: 'https://assets.jmq.example/' };
+    const withDomain = { ...env, PUBLIC_BASE: 'https://assets.jmq.example' };
     const { url } = await (await worker.fetch(uploadRequest(), withDomain)).json();
-    expect(url).toMatch(/^https:\/\/assets\.jmq\.example\/[a-f0-9]{32}\.png$/);
+    expect(url).toMatch(/^https:\/\/assets\.jmq\.example\/i\/[a-f0-9]{32}\.png$/);
   });
 
-  it('reports health without touching the bucket', async () => {
+  it('reports health on both bindings', async () => {
     const response = await worker.fetch(new Request('https://assets.example.com/health'), env);
     expect(response.status).toBe(200);
-    expect((await response.json()).ok).toBe(true);
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(body.app).toBe('assets bound');
+    expect(body.images).toMatch(/r2 reachable/);
   });
 });

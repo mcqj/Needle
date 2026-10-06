@@ -9,28 +9,43 @@
  */
 import { fileToDataUrl } from './media';
 
+/** A value meaning "do not upload": images are embedded in the entry instead. */
+export const ASSETS_OFF = 'off';
+
 /**
  * Where uploads go.
  *
- *   unset  → `/api/assets`, which the Vite dev server proxies to the local
- *            Worker, so development uses a real bucket
- *   ""     → no asset host: images are embedded as data URLs instead
- *   URL    → that host, e.g. https://needle-assets.example.workers.dev
+ * Production: the app, its images and the upload endpoint are all served by one
+ * Worker, so uploads are same-origin at `/upload`, and an empty prefix is the
+ * right answer. There is nothing to configure.
  *
- * A build with no value falls back to the dev path, which will not exist in
- * production — so set VITE_ASSET_ENDPOINT (or an absolute VITE_ASSET_HOST) for
- * a deployed app, and leave it empty to opt out of uploads entirely.
+ * Development: Vite serves the app and proxies `/api/*` and `/i/*` to the Worker
+ * running separately, so the app is same-origin there too and the same relative
+ * URLs work. The prefix exists only so the proxy can distinguish the Worker's
+ * paths from Vite's own.
+ *
+ * VITE_ASSET_ENDPOINT overrides both: an absolute URL if the asset API is ever
+ * served elsewhere, or `off` to opt out of uploads entirely.
  */
-export const ASSET_ENDPOINT = (
-  import.meta.env?.VITE_ASSET_ENDPOINT ?? '/api/assets'
-).replace(/\/$/, '');
+function resolveEndpoint() {
+  const configured = import.meta.env?.VITE_ASSET_ENDPOINT;
+  if (configured === ASSETS_OFF) return ASSETS_OFF;
+  if (configured !== undefined) return configured;
+  return import.meta.env?.DEV ? '/api' : '';
+}
+
+export const ASSET_ENDPOINT = resolveEndpoint().replace(/\/$/, '');
 
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
 
+/**
+ * Whether uploads are available at all. An empty endpoint is *not* "off": it
+ * means same-origin, which is how the deployed app is served.
+ */
 export function isAssetHostConfigured() {
-  return Boolean(ASSET_ENDPOINT);
+  return ASSET_ENDPOINT !== ASSETS_OFF;
 }
 
 /**

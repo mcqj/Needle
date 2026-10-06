@@ -1,0 +1,40 @@
+# Needle: the app and its artwork host, as one Worker.
+#
+# The built frontend is served from static assets, which are free and unlimited;
+# only requests that reach this script are billable. Uploads and stored images
+# are same-origin with the app, so there is no CORS to configure and image URLs
+# can be relative.
+name = "needle"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[assets]
+# The Vite build output, relative to this file.
+directory = "../dist"
+# Client-side routing: /friends and /music/:id exist only in the browser, so
+# anything that is not an asset serves index.html rather than 404ing.
+not_found_handling = "single-page-application"
+# Gives the script env.ASSETS, so it can hand non-API requests back to the asset
+# router, and reference index.html explicitly.
+binding = "ASSETS"
+# Assets are matched first by default, which means a request for a missing image
+# would fall through to the SPA and be answered with HTML. These paths reach the
+# script instead: the upload API, and everything under /i/ (stored images).
+# Images live under /i/ precisely so this can be a prefix rather than a glob over
+# file extensions, which would also match bundle assets in /assets/.
+run_worker_first = ["/upload", "/health", "/i/*"]
+
+[vars]
+# Stored image URLs are built relative to the app origin, so this stays empty on
+# purpose: an absolute URL would pin entries to one hostname.
+PUBLIC_BASE = ""
+# Uploads are same-origin now, so there is no cross-origin list to maintain. The
+# script still refuses an upload arriving from an origin it does not recognise,
+# which is what keeps the endpoint closed to scripted abuse; a same-origin
+# request always carries this origin.
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:4173"
+MAX_UPLOAD_BYTES = "5242880"
+
+[[r2_buckets]]
+binding = "ASSETS_R2"
+bucket_name = "needle-assets"

@@ -13,12 +13,12 @@
     "test:coverage": "vitest run --coverage",
     "test:ui": "playwright test",
     "relay:selftest": "node scripts/relay-selftest.mjs",
-    "assets:dev": "npm --prefix worker run dev",
-    "assets:test": "npm --prefix worker test",
+    "assets:dev": "npm --prefix needle run dev",
+    "assets:test": "npm --prefix needle test",
     "test:all": "npm test && npm run assets:test",
     "assets:login": "wrangler login",
     "assets:bucket": "wrangler r2 bucket create needle-assets",
-    "assets:deploy": "npm --prefix worker run deploy",
+    "assets:deploy": "npm --prefix needle run deploy",
     "dev:all": "npm run assets:dev & npm run dev"
   },
   "dependencies": {
