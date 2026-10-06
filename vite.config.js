@@ -30,6 +30,17 @@ function relayIdentityEndpoint() {
 
 export default defineConfig({
   plugins: [react(), relayIdentityEndpoint()],
+  server: {
+    proxy: {
+      // Dev only: the asset Worker runs separately (`npm run assets:dev`) against
+      // a local R2 bucket, and the app calls it on its own origin.
+      '/api/assets': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/assets/, ''),
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     setupFiles: './src/tests/setup.js',

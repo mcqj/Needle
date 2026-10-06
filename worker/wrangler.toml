@@ -1,0 +1,20 @@
+# Asset hosting for Needle: uploads land in R2, the app keeps only the returned
+# URL. `wrangler dev` uses a bucket simulated on disk, so the whole path works
+# before an account exists (see dev/dev-server.js for a CLI-free alternative).
+name = "needle-assets"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+# Origins allowed to upload. Add the deployed app origin here, e.g.
+# "https://needle.pages.dev", or uploads will be refused by the browser.
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:4173"
+# The origin image URLs are built from. This must be an absolute URL: the app and
+# the Worker are on different origins, so a relative URL would resolve against
+# the wrong host. Update it if you attach a custom domain.
+PUBLIC_BASE = "https://needle-assets.jmq33.workers.dev"
+MAX_UPLOAD_BYTES = "5242880"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "needle-assets"

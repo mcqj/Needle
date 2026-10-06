@@ -1,0 +1,11 @@
+{
+  "name": "needle-assets-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node dev/dev-server.js",
+    "dev:wrangler": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run"
+  }
+}

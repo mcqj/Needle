@@ -12,7 +12,14 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ui": "playwright test",
-    "relay:selftest": "node scripts/relay-selftest.mjs"
+    "relay:selftest": "node scripts/relay-selftest.mjs",
+    "assets:dev": "npm --prefix worker run dev",
+    "assets:test": "npm --prefix worker test",
+    "test:all": "npm test && npm run assets:test",
+    "assets:login": "wrangler login",
+    "assets:bucket": "wrangler r2 bucket create needle-assets",
+    "assets:deploy": "npm --prefix worker run deploy",
+    "dev:all": "npm run assets:dev & npm run dev"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -43,6 +50,12 @@
     "postcss": "^8.5.27",
     "tldts": "^7.4.16",
     "vite": "^8.3.1",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.3",
+    "wrangler": "^4.147.0"
+  },
+  "allowScripts": {
+    "workerd@1.20261001.1": true,
+    "esbuild@0.28.1": true,
+    "fsevents@2.3.3": true
   }
 }

@@ -56,6 +56,9 @@ npm run test:watch     # Run unit tests in watch mode
 npm run test:coverage  # Run unit tests with V8 coverage
 npm run test:ui        # Run Playwright browser tests
 npm run relay:selftest # Prove the 1-z-2 loop end to end against the relay
+npm run assets:dev     # Run the artwork asset host locally (real R2 bucket)
+npm run assets:test    # Test the asset host
+npm run test:all       # App tests and asset-host tests
 ```
 
 Playwright may require its Chromium test browser on a new machine:
@@ -63,6 +66,85 @@ Playwright may require its Chromium test browser on a new machine:
 ```sh
 npx playwright install chromium
 ```
+
+## Artwork storage
+
+Uploaded images do not live in the browser. They go to a small Cloudflare Worker
+in `worker/` that stores them in an R2 bucket and returns a URL, and the entry
+keeps only that URL. That is what keeps browser storage small, lets the same
+picture appear on every device, and stops a cleared browser from taking the
+artwork with it.
+
+Entries are unchanged: `imageUrl` still holds a URL, so the 1-z-2 capability and
+everything built on it behave exactly as before.
+
+Development uses a **real bucket, locally**. Two terminals:
+
+```sh
+npm run assets:dev   # the Worker, backed by worker/.wrangler/r2 on disk
+npm run dev          # the app; /api/assets is proxied to the Worker
+```
+
+Objects are content-addressed: the same bytes always produce the same key, so
+re-uploading is idempotent and the URL for a given image never changes — which
+is why it is served with a one-year immutable cache.
+
+If the asset host is unreachable, the app embeds a small image in the entry
+instead rather than failing. That is deliberate: like the relay, the asset host
+must never break the ledger. Set `VITE_ASSET_ENDPOINT` (see `.env.example`) to
+an absolute URL for a deployed build, or to `""` to opt out of uploads entirely.
+
+### Deploying the asset host
+
+Once you have a Cloudflare account:
+
+```sh
+cd worker
+npx wrangler login          # interactive, once
+npx wrangler r2 bucket create needle-assets
+npx wrangler deploy
+```
+
+Deployed at `https://needle-assets.jmq33.workers.dev` on the free
+`*.workers.dev` subdomain, which needs no domain registration:
+
+```sh
+npm run assets:login     # wrangler login (interactive, once)
+npm run assets:bucket    # create the R2 bucket
+npm run assets:deploy    # deploy; prints the Worker URL
+```
+
+Then keep two values in `worker/wrangler.toml` current and redeploy:
+
+- `PUBLIC_BASE` — the Worker's absolute URL, so stored image URLs name a host.
+  Relative URLs would resolve against the app's origin, which is a different
+  origin entirely.
+- `ALLOWED_ORIGINS` — every origin the app is served from, including the
+  deployed one once the frontend is hosted. Uploads from anywhere else are
+  refused.
+
+When you later attach a custom domain, point `PUBLIC_BASE` at it; keys are
+content-addressed, so every existing image URL keeps working.
+
+R2's own `*.r2.dev` subdomain is rate-limited and documented as non-production,
+which is why images are served by the Worker rather than by an R2 public URL.
+
+### Uploads are not open to the internet
+
+Uploading is a write, so `/upload` requires an allowed `Origin`. A browser
+always sends `Origin` on a cross-origin request and cannot forge it, which shuts
+out scripted abuse — CORS alone does not, because it only restrains browsers.
+
+Note that `PUBLIC_BASE` and `ALLOWED_ORIGINS` are not secrets: they are visible
+in any build. The origin rule is what keeps the endpoint honest. For a
+server-side caller with no `Origin`, set a shared secret instead:
+
+```sh
+npx wrangler secret put UPLOAD_TOKEN
+```
+
+and send it as `X-Upload-Token`. When set, a correct token is accepted in place
+of a matching origin.
 
 ## Exchanging music with other apps
 
@@ -128,6 +210,7 @@ src/
   utils/          URL, artwork, file, and formatting helpers
 relay-client.js   Vendored 1-z-2 SDK, unmodified
 scripts/          Standalone integration checks
+worker/           Artwork asset host (Cloudflare Worker + R2)
 e2e/              Playwright browser tests
 ```
 
@@ -138,4 +221,4 @@ relay that cannot be reached leaves the ledger fully usable.
 
 ## Artwork Behavior
 
-YouTube watch, short, embed, and `youtu.be` URLs automatically resolve to a YouTube thumbnail. Other sources can use a manually supplied image URL or an uploaded image. Uploaded images are stored with the entry in browser storage, so the app limits each file to 2 MB.
+YouTube watch, short, embed, and `youtu.be` URLs automatically resolve to a YouTube thumbnail. Other sources can use a manually supplied image URL or an uploaded image, which is stored by the asset host (see above) and referenced by URL. If the artwork link later stops returning an image, the entry says so plainly instead of showing a broken image.

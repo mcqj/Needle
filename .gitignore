@@ -9,6 +9,12 @@ playwright-report/
 *.swp
 *.log
 
+# Local tooling state: npm's cache is kept in-repo because the sandbox cannot
+# write to the global one, and wrangler writes bucket and metrics state.
+.npm-cache/
+.wrangler-home/
+worker/.wrangler/
+
 # 1-z-2 identity. The private key never belongs in git.
 .relay-*.json
 !.relay-*.example.json

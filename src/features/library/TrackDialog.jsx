@@ -13,13 +13,15 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  LinearProgress,
   Rating,
   Stack,
   TextField,
   Typography,
 } from '@mui/material';
 import Artwork from '../../components/Artwork';
-import { fileToDataUrl, getAutomaticArtwork, normalizeUrl } from '../../utils/media';
+import { getAutomaticArtwork, normalizeUrl } from '../../utils/media';
+import { MAX_UPLOAD_BYTES, uploadArtwork, validateImageFile } from '../../utils/assets';
 
 const EMPTY_FORM = {
   url: '',
@@ -35,6 +37,8 @@ export default function TrackDialog({ open, onClose, onSave, track, categories =
   const [form, setForm] = useState(() => (track ? { ...EMPTY_FORM, ...track } : EMPTY_FORM));
   const [error, setError] = useState('');
   const [artworkMode, setArtworkMode] = useState(track?.imageUrl ? 'manual' : 'auto');
+  /** 0..1 while an upload is in flight, null when idle. */
+  const [uploading, setUploading] = useState(null);
 
   const automaticArtwork = useMemo(() => getAutomaticArtwork(form.url), [form.url]);
   const previewArtwork = artworkMode === 'manual' ? form.imageUrl : automaticArtwork;
@@ -46,18 +50,27 @@ export default function TrackDialog({ open, onClose, onSave, track, categories =
   async function handleFile(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('Choose an image file for the artwork.');
-      return;
-    }
-    if (file.size > 2_000_000) {
-      setError('Choose an image smaller than 2 MB so it can be stored on this device.');
+
+    const problem = validateImageFile(file);
+    if (problem) {
+      setError(problem);
       return;
     }
 
-    update('imageUrl', await fileToDataUrl(file));
-    setArtworkMode('manual');
     setError('');
+    setUploading(0);
+    try {
+      // The image goes to the asset host and only its URL is kept, so entries
+      // stay small and the picture is not tied to this browser.
+      const { url } = await uploadArtwork(file, setUploading);
+      update('imageUrl', url);
+      setArtworkMode('manual');
+    } catch (uploadError) {
+      setError(uploadError.message || 'The image could not be uploaded.');
+    } finally {
+      setUploading(null);
+      event.target.value = '';
+    }
   }
 
   function handleSubmit(event) {
@@ -179,10 +192,25 @@ export default function TrackDialog({ open, onClose, onSave, track, categories =
                 placeholder="https://…"
                 fullWidth
               />
-              <Button component="label" variant="outlined" startIcon={<AddPhotoAlternateRoundedIcon />}>
-                Choose image
+              <Button
+                component="label"
+                variant="outlined"
+                startIcon={<AddPhotoAlternateRoundedIcon />}
+                disabled={uploading !== null}
+              >
+                {uploading === null ? 'Choose image' : `Uploading ${Math.round(uploading * 100)}%`}
                 <input hidden accept="image/*" type="file" onChange={handleFile} />
               </Button>
+              {uploading !== null && (
+                <LinearProgress
+                  variant={uploading > 0 ? 'determinate' : 'indeterminate'}
+                  value={uploading * 100}
+                  aria-label="Artwork upload progress"
+                />
+              )}
+              <Typography variant="body2" color="text.secondary">
+                {`PNG, JPEG, WebP, GIF or AVIF, up to ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB.`}
+              </Typography>
               {artworkMode === 'manual' && automaticArtwork && (
                 <Button
                   color="inherit"
