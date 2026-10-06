@@ -1,0 +1,64 @@
+name: CI
+
+# Runs on every push and pull request. Deploying is separate (deploy.yml) and
+# calls this workflow first, so the same checks gate a release.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Called by deploy.yml, which is why deploying depends on this workflow.
+  # An explicit body keeps this from parsing as a bare null.
+  workflow_call:
+    inputs: {}
+
+# Only reads the repository, so say so rather than relying on the default.
+permissions:
+  contents: read
+
+# A superseded run on the same ref is worth cancelling: it is only checking.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # `npm ci` installs exactly the lockfile, so a build here matches a local
+      # one. The Worker under needle/ has no lockfile of its own: it resolves
+      # vitest and wrangler from this install.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test the app
+        run: npm test
+
+      - name: Test the Worker
+        run: npm run assets:test
+
+      - name: Build
+        run: npm run build
+
+      # The Worker serves the build as static assets, so a build that produced
+      # no index.html would deploy an app that renders nothing. Catch it here
+      # rather than after a deploy.
+      - name: Check the build produced something servable
+        run: |
+          test -f dist/index.html || { echo "dist/index.html is missing"; exit 1; }
+          test -d dist/assets || { echo "dist/assets is missing"; exit 1; }
+          echo "dist looks servable: $(find dist -type f | wc -l) files"

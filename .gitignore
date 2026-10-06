@@ -13,7 +13,8 @@ playwright-report/
 # write to the global one, and wrangler writes bucket and metrics state.
 .npm-cache/
 .wrangler-home/
-worker/.wrangler/
+needle/.wrangler/
+.vitest/
 
 # 1-z-2 identity. The private key never belongs in git.
 .relay-*.json

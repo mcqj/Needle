@@ -1,0 +1,120 @@
+name: Deploy
+
+# Manual only, on purpose. Deploying is a decision, and while the app is still
+# being iterated on, the local `npm run assets:deploy` stays the normal path.
+# Run this from the Actions tab when a commit on main is ready to go live.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch or tag to deploy (defaults to the branch you pick above)
+        required: false
+        type: string
+
+# Reads the repository and writes nothing to GitHub; Cloudflare access is via
+# the API token below, not this.
+permissions:
+  contents: read
+
+# Never two deploys at once: the second would race the first for what is live.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  # The same lint, tests and build that run on every push. Deploying without
+  # them would mean shipping something no check has seen.
+  verify:
+    name: Verify
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy to Cloudflare
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Records the deployment against an environment, so its history is visible
+    # and a required reviewer or branch rule can be added later without
+    # touching this file.
+    environment: production
+
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # wrangler.toml points its assets directory at ../dist, so the frontend is
+      # built here first and shipped in the same deploy as the Worker.
+      - name: Build
+        run: npm run build
+
+      - name: Check the credentials are present
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::The CLOUDFLARE_API_TOKEN secret is not set for this repository."
+            echo "Create a token with the 'Edit Cloudflare Workers' template and add it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::The CLOUDFLARE_ACCOUNT_ID secret is not set for this repository."
+            echo "Find it in the Cloudflare dashboard URL, or with 'npx wrangler whoami'."
+            exit 1
+          fi
+
+      # Deploy runs from needle/, where wrangler.toml lives; the Worker name
+      # there (needle) has to match the one in the Cloudflare dashboard.
+      - name: Deploy
+        run: npm --prefix needle run deploy
+
+      # A deploy that half-worked is worse than one that failed loudly, so ask
+      # the deployment what it can reach. /health reports 503 if a binding is
+      # missing, which is exactly the failure a fresh deploy is prone to.
+      - name: Confirm the deployment is serving
+        run: |
+          url="https://needle.jmq33.workers.dev"
+          for attempt in 1 2 3 4 5 6 7 8; do
+            body=$(curl -fsS --max-time 15 "$url/health" 2>/dev/null) && status=0 || status=$?
+            if [ "$status" -eq 0 ]; then
+              echo "health: $body"
+              echo "$body" | grep -q '"ok":true' || {
+                echo "::error::$url/health reported a problem: $body"
+                exit 1
+              }
+              # A deep link proves the SPA fallback survived the deploy.
+              curl -fsS --max-time 15 -o /dev/null "$url/friends" || {
+                echo "::error::$url/friends did not serve"
+                exit 1
+              }
+              echo "deployment is serving"
+              exit 0
+            fi
+            echo "attempt $attempt: not serving yet (curl exit $status)"
+            sleep 10
+          done
+          echo "::error::$url is not serving after 8 attempts"
+          exit 1
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "### Deploy"
+            echo
+            echo "- ref: \`${{ inputs.ref || github.ref }}\`"
+            echo "- commit: \`${{ github.sha }}\`"
+            echo "- live: <https://needle.jmq33.workers.dev>"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -62,6 +62,31 @@ npm run assets:deploy  # Deploy the app and its asset API together
 npm run test:all       # App tests and Worker tests
 ```
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request: lint, app tests,
+Worker tests, and a build, plus a check that the build produced something
+servable. A build that emitted no `index.html` would deploy an app rendering
+nothing, so it fails there rather than after a deploy.
+
+`.github/workflows/deploy.yml` deploys, and is **manual on purpose** — run it from
+the Actions tab. Deploying is a decision, and while the app is still being
+iterated on, `npm run assets:deploy` stays the normal path. The deploy job calls
+the CI workflow first, so nothing ships that the checks have not seen, and a
+concurrency group means two deploys can never race for what is live.
+
+It needs two repository secrets, under **Settings → Secrets and variables →
+Actions**:
+
+| Secret | Where to get it |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token → the **Edit Cloudflare Workers** template |
+| `CLOUDFLARE_ACCOUNT_ID` | The dashboard URL, or `npx wrangler whoami` |
+
+The deploy job runs in a GitHub environment called `production`. That is only a
+label today — it gives the deployment a history and a place to add a required
+reviewer or a branch restriction later without editing the workflow.
+
 Playwright may require its Chromium test browser on a new machine:
 
 ```sh

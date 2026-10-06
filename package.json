@@ -57,5 +57,8 @@
     "workerd@1.20261001.1": true,
     "esbuild@0.28.1": true,
     "fsevents@2.3.3": true
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
