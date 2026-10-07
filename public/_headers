@@ -1,0 +1,26 @@
+# Response headers for the static assets. Workers applies these to asset
+# responses; the Worker's own routes (/upload, /i/*, /health) set their own,
+# which is why stored images are not listed here.
+#
+# Without this file every asset is served with the default
+# `Cache-Control: public, max-age=0, must-revalidate`, so a returning visitor
+# revalidates all ~38 files on every load — two round trips per file instead of
+# none. Vite gives hashed bundles under /assets/ names that change with their
+# contents, so they can be cached indefinitely.
+
+# Fingerprinted build output: the name changes when the content does.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# HTML must never be cached: it references the hashed bundles, so a stale copy
+# would pin the browser to a previous deploy.
+/
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
+
+# Cheap hardening, applied to every asset.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

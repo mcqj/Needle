@@ -1,5 +1,5 @@
 {
-  "name": "needle-assets-worker",
+  "name": "needle-worker",
   "private": true,
   "type": "module",
   "scripts": {
