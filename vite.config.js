@@ -1,14 +1,22 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-
-const IDENTITY_FILE = fileURLToPath(new URL('./.relay-jmq.json', import.meta.url));
 
 // Dev only. The identity file is a secret held in the project directory, never
 // bundled and never committed. This serves it to the local dev origin so the
 // app can seed its own credential store on first run instead of asking the
 // user to hand-copy a dotfile. The endpoint does not exist in a build.
+const IDENTITY_FILE = fileURLToPath(new URL('./.relay-jmq.json', import.meta.url));
+
+/**
+ * The filename is returned in a header because the exported credentials do not
+ * carry the handle: per the integration spec it lives in `.relay-<handle>.json`,
+ * so the app reads it from the name rather than being configured with it. To use
+ * a different handle, drop `.relay-<that handle>.json` in the project root and
+ * change the path above; nothing in the app needs editing.
+ */
 function relayIdentityEndpoint() {
   return {
     name: 'needle:relay-identity',
@@ -22,6 +30,7 @@ function relayIdentityEndpoint() {
         }
         res.setHeader('content-type', 'application/json');
         res.setHeader('cache-control', 'no-store');
+        res.setHeader('x-identity-file', basename(IDENTITY_FILE));
         res.end(readFileSync(IDENTITY_FILE));
       });
     },

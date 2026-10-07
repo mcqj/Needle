@@ -42,7 +42,8 @@ export default function IdentityImport() {
         <input hidden type="file" accept="application/json,.json" onChange={handleFile} />
       </Button>
       <Typography variant="body2" color="text.secondary">
-        Choose the .relay-jmq.json file saved when this handle was registered.
+        {'Choose the .relay-<handle>.json file saved when the handle was registered. '
+          + 'The handle is read from the file, so it does not have to match anything here.'}
       </Typography>
     </>
   );

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider, createStore } from 'jotai';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { receivedTracksAtom, sentTracksAtom } from '../../state/friendsAtoms';
 
 // Mutated per test: the relay is never contacted, the plumbing is a stub.
@@ -8,6 +8,7 @@ const client = {
   updates: vi.fn(async () => ({ updates: [] })),
   featurePrompt: vi.fn(() => 'paste me'),
   introductions: vi.fn(async () => ({ open: false, suggestions: [] })),
+  retention: vi.fn(async () => ({ policy: { bodyTtlDays: 10 }, words: { messages: 0 } })),
   setIntroductions: vi.fn(async (open) => ({ open })),
 };
 
@@ -41,6 +42,10 @@ vi.mock('./useRelay', () => ({
 const ReceivedSection = (await import('./ReceivedSection')).default;
 const UpdatesSection = (await import('./UpdatesSection')).default;
 const ConversationSection = (await import('./ConversationSection')).default;
+const ConnectionsSection = (await import('./ConnectionsSection')).default;
+// The app must not assume who it is: the credentials carry the handle, so the
+// only thing that has to be discoverable is the one thing that keys them.
+const { storedHandle, hasStoredIdentity, myHandle, handleFromFilename } = await import('./relay-client');
 
 function renderWith(atomValues, element) {
   const store = createStore();
@@ -261,5 +266,53 @@ describe('conversation', () => {
     fireEvent.change(screen.getByPlaceholderText('Write to @sam'), { target: { value: 'that bassline' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(actions.sendChat).toHaveBeenCalledWith('sam', 'that bassline');
+  });
+});
+
+describe('deriving the handle', () => {
+  afterEach(() => { localStorage.clear(); });
+
+  it('finds the handle from stored credentials rather than being told it', () => {
+    localStorage.setItem('relay:someone-else', JSON.stringify({ token: 't' }));
+    expect(storedHandle()).toBe('someone-else');
+    expect(hasStoredIdentity()).toBe(true);
+  });
+
+  it('handles a different handle than the one this project was built with', () => {
+    localStorage.setItem('relay:another-person', JSON.stringify({ token: 't' }));
+    expect(storedHandle()).toBe('another-person');
+  });
+
+  it('reports no identity when there are no credentials', () => {
+    expect(storedHandle()).toBeNull();
+    expect(hasStoredIdentity()).toBe(false);
+  });
+
+  it('ignores unrelated storage keys', () => {
+    localStorage.setItem('needle-library', '[]');
+    localStorage.setItem('relay:', 'not-a-handle');
+    expect(storedHandle()).toBeNull();
+  });
+
+  it('has no handle until a connection exists', () => {
+    expect(myHandle()).toBeNull();
+  });
+
+  it('reads the handle from the identity filename, which is where it lives', () => {
+    // The exported credentials do not carry a `handle` field -- the ones the
+    // relay's website writes do not -- so the filename is the reliable source.
+    expect(handleFromFilename('.relay-jmq.json')).toBe('jmq');
+    expect(handleFromFilename('.relay-someone-else.json')).toBe('someone-else');
+    expect(handleFromFilename('relay-jmq.json')).toBeNull();
+    expect(handleFromFilename('jmq.json')).toBeNull();
+    expect(handleFromFilename('')).toBeNull();
+    expect(handleFromFilename(undefined)).toBeNull();
+  });
+
+  it('shows the connected handle in the interface, not a literal', () => {
+    relayState.me = { handle: 'someone-else' };
+    renderWith([], <ConnectionsSection />);
+    expect(screen.getByText(/Connected as @someone-else/)).toBeTruthy();
+    relayState.me = { handle: 'jmq' };
   });
 });

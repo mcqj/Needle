@@ -152,7 +152,7 @@ function RetentionNote() {
 }
 
 export default function ConnectionsSection() {
-  const { roster, connection, client } = useRelayState();
+  const { roster, connection, client, me } = useRelayState();
   const actions = useRelayActionsContext();
   const [handle, setHandle] = useState('');
   const [note, setNote] = useState('hi — it’s me');
@@ -311,7 +311,7 @@ export default function ConnectionsSection() {
           <Typography component="h3" variant="h5">This device</Typography>
           <Typography variant="body2" color="text.secondary">
             {connection.state === 'online'
-              ? `Connected as @jmq · app ${connection.appId || ''}`
+              ? `Connected as @${me.handle} · app ${connection.appId || ''}`
               : 'Not connected to 1-z-2 right now.'}
           </Typography>
           <Typography variant="body2" color="text.secondary">

@@ -210,13 +210,34 @@ on the item itself with an explanation of why it is slow.
 
 ### Identity
 
-The handle's credentials live in `.relay-jmq.json` in the project directory,
-which is gitignored and never bundled. On first run in development, the app
-reads them from a dev-only `/.relay-identity` endpoint (see `vite.config.js`)
-and imports them into the browser's own credential store. After that, the key
-is reused silently and the endpoint is not needed. A production build has no
-such endpoint; the friends screen offers an *Import identity file* input
-instead, so no key material ever has to be pasted anywhere.
+The credentials live in an identity file in the project directory,
+`.relay-<handle>.json`, which is gitignored and never bundled. On first run in
+development the app reads them from a dev-only `/.relay-identity` endpoint (see
+`vite.config.js`) and imports them into the browser's own credential store.
+After that the key is reused silently and the endpoint is not needed. A
+production build has no such endpoint; the friends screen offers an *Import
+identity file* input instead, so no key material ever has to be pasted anywhere.
+
+**The handle is not hardcoded.** It is derived from the identity the browser
+holds, because that is the only thing that can know it — and having it in two
+places would let it disagree with the key that authenticates it. Three sources,
+in order:
+
+1. The credentials themselves, when they carry a `handle` field.
+2. The identity filename, which per the [integration
+   spec](https://relay.1-z-2.com/integrate.md) is `.relay-<handle>.json`. This
+   is the usual path: the files the relay's website exports do *not* include a
+   `handle` field, so the name is the reliable source.
+3. The `x-identity-file` header the dev endpoint returns, naming the file it
+   served.
+
+Nothing else needs editing to use a different handle: drop
+`.relay-<that-handle>.json` in the project root, point `IDENTITY_FILE` in
+`vite.config.js` at it for development, and import it on first visit to a
+deployed origin. `storedHandle()` finds whichever handle the browser already
+holds by reading its credential keys, since the handle is the one thing that
+cannot be looked up without it. A browser with no identity gets a plain "import
+one" rather than a failed registration.
 
 ### Checking the integration
 

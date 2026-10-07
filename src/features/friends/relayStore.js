@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useStore } from 'jotai';
-import { connectRelay, HANDLE, relayCall, retryConnection, setInboundHandler } from './relay-client';
+import { connectRelay, myHandle, relayCall, retryConnection, setInboundHandler } from './relay-client';
 import { chatThreadsAtom, receivedTracksAtom, sentTracksAtom } from '../../state/friendsAtoms';
 import { libraryAtom } from '../../state/libraryAtoms';
 
@@ -183,7 +183,7 @@ export function useRelayActions() {
   const findLanding = useCallback(async (handle) => {
     const result = await relayCall('contracts', (relay) => relay.contracts());
     const contract = result?.contracts?.find((entry) => (
-      entry.from === HANDLE && entry.to === handle && entry.sentAs === 'saved-listen'
+      entry.from === myHandle() && entry.to === handle && entry.sentAs === 'saved-listen'
     ));
     return contract?.deliveredAs || null;
   }, []);

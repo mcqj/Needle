@@ -11,11 +11,19 @@ const credentials = existsSync(IDENTITY)
   ? JSON.parse(readFileSync(IDENTITY, 'utf8'))
   : null;
 
+/**
+ * The handle comes out of the identity file rather than being written here, so
+ * this test follows the same rule as the app: nothing assumes who it is.
+ */
+const handle = credentials?.handle
+  ?? IDENTITY.pathname.match(/\.relay-([a-z0-9-]+)\.json$/)?.[1]
+  ?? null;
+
 async function seedIdentity(page) {
-  if (!credentials) return;
-  await page.addInitScript((value) => {
-    window.localStorage.setItem('relay:jmq', JSON.stringify(value));
-  }, credentials);
+  if (!credentials || !handle) return;
+  await page.addInitScript(([key, value]) => {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  }, [`relay:${handle}`, credentials]);
 }
 
 test.describe('listening circle', () => {
@@ -36,8 +44,8 @@ test.describe('listening circle', () => {
 
   test('reaches the relay and reports the connection', async ({ page }) => {
     test.skip(!credentials, 'no identity file in this checkout');
-    await expect(page.getByText('Connected as @jmq', { exact: true })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Connected as @jmq · app/)).toBeVisible();
+    await expect(page.getByText(`Connected as @${handle}`, { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(new RegExp(`Connected as @${handle} · app`))).toBeVisible();
   });
 
   test('sends a listen without blocking the ledger', async ({ page }) => {
